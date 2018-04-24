@@ -1,3 +1,3 @@
 [submodule "models"]
 	path = models
-	url = git@193.169.1.230:framework/models.git
+	url = https://github.com/lulzsec2012/models.git
