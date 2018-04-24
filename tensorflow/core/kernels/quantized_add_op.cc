@@ -571,6 +571,52 @@ class QuantizedAddOp : public OpKernel {
   }
 };
 
+template <class T, class Toutput>
+class QuantizedJZAddOp : public OpKernel {
+ public:
+  explicit QuantizedJZAddOp(OpKernelConstruction* context) : OpKernel(context) {}
+
+  void Compute(OpKernelContext* context) override {
+    const Tensor& x = context->input(0);
+    const Tensor& y = context->input(1);
+    const float min_x = context->input(2).flat<float>()(0);
+    const float max_x = context->input(3).flat<float>()(0);
+    const float min_y = context->input(4).flat<float>()(0);
+    const float max_y = context->input(5).flat<float>()(0);
+
+    BCast bcast(BCast::FromShape(x.shape()), BCast::FromShape(y.shape()));
+    if (!bcast.IsValid()) {
+      context->SetStatus(errors::InvalidArgument(
+          "Incompatible shapes: ", x.shape().DebugString(), " vs. ",
+          y.shape().DebugString()));
+      return;
+    }
+    Tensor* z;
+    OP_REQUIRES_OK(context, context->allocate_output(
+                                0, BCast::ToShape(bcast.output_shape()), &z));
+
+    // Make sure that we have valid quantization ranges for the input buffers.
+    // If the difference between the min and max is negative or zero, it makes
+    // it hard to do meaningful intermediate operations on the values.
+    //Toutput* z_data = z->flat<Toutput>().data();
+
+    // We want the range of the output to be symmetrical around zero so that
+    // adding zero leaves the result unchanged, and to contain the largest of
+    // the two input values with some room to spare.
+
+    const T* x_data = x.flat<T>().data();
+    const T* y_data = y.flat<T>().data();
+    Toutput* z_data = z->flat<Toutput>().data();
+
+    const size_t num_elements = x.NumElements();
+    for (int i = 0; i < num_elements; i++){
+      z_data[i] = x_data[i] + y_data[i];
+    }
+
+  }
+};
+
+  
 REGISTER_KERNEL_BUILDER(Name("QuantizedAdd")
                             .Device(DEVICE_CPU)
                             .TypeConstraint<quint8>("T1")
@@ -578,4 +624,11 @@ REGISTER_KERNEL_BUILDER(Name("QuantizedAdd")
                             .TypeConstraint<qint32>("Toutput"),
                         QuantizedAddOp<quint8, qint32>);
 
+REGISTER_KERNEL_BUILDER(Name("QuantizedAdd")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<qint32>("T1")
+                            .TypeConstraint<qint32>("T2")
+                            .TypeConstraint<qint32>("Toutput"),
+                        QuantizedJZAddOp<qint32, qint32>);
+  
 }  // namespace tensorflow
