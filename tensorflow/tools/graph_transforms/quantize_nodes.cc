@@ -232,6 +232,7 @@ Status MergeDuplicateNodes(const GraphDef& input_graph_def,
         if (is_duplicate) {
           const string original_name = hash_node_list[0]->name();
           inputs_to_rename[current_node->name() + ":*"] = original_name;
+	  std::cout<<"current_node->name():"<<current_node->name()<<" : "<<original_name<<std::endl;
           any_duplicates_found = true;
         } else {
           NodeDef* new_node = merged_graph_def.mutable_node()->Add();
@@ -298,6 +299,76 @@ Status RemoveRedundantQuantizations(const GraphDef& input_graph_def,
           CopyOriginalMatch(match, new_nodes);
         }
 
+        return Status::OK();
+      },
+      {true}, &replaced_graph_def));
+
+  return RenameNodeInputs(replaced_graph_def, inputs_to_rename,
+                          std::unordered_set<string>(), output_graph_def);
+}
+
+  //
+Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
+                                    const TransformFuncContext& context,
+                                    GraphDef* output_graph_def) {
+  std::set<string> graph_outputs;
+  for (const string& output_name : context.output_names) {
+    graph_outputs.insert(NodeNameFromInput(output_name));
+  }
+  std::cout<<"Hello Tensorflow!"<<std::endl;
+  std::map<string, string> inputs_to_rename;
+  GraphDef replaced_graph_def;
+  TF_RETURN_IF_ERROR(ReplaceMatchingOpTypes(
+      input_graph_def,  // clang-format off
+      {"Requantize",
+	  {
+	    {"QuantizedAdd",
+		{
+		  {"Requantize",
+		      {
+			{"QuantizedConv2D"},
+			{"*"},
+			{"*"},
+			{"*"},
+			{"*"},
+		      }
+		  },
+		  {"*"},
+		  {"*"},
+		  {"*"},
+		  {"*"},
+		  {"*"},
+		}
+	    },
+	    {"*"},
+	    {"*"},
+	    {"*"},
+	    {"*"},	
+	  }
+      },  // clang-format on
+      [&inputs_to_rename, &graph_outputs](const NodeMatch& match,
+                                          const std::set<string>& input_nodes,
+                                          const std::set<string>& output_nodes,
+                                          std::vector<NodeDef>* new_nodes) {
+        //{"RequantizationRange"},
+        //{"RequantizationRange"},
+        const NodeDef& quantize_node = match.node;
+        const NodeDef& dequantize_node = match.inputs[0].node;
+        std::cout<<"nameR::"<<quantize_node.name()<<std::endl;
+	std::cout<<"     ::"<<match.inputs[0].node.name()<<std::endl;
+	std::cout<<"     ::"<<match.inputs[0].inputs[0].node.name()<<std::endl;
+	std::cout<<"     ::"<<match.inputs[0].inputs[0].inputs[0].node.name()<<std::endl;
+	if("MobilenetV1/MobilenetV1/Conv2d_6_pointwise/act_quant/FakeQuantWithMinMaxVars_hoisted_eightbit/requantize" == quantize_node.name() && 1==0){
+          int n = match.node.input_size();
+          std::cout<<"Size："<<n<<std::endl;
+          std::cout<<"match.DebugString()="<<std::endl<<match.DebugString()<<std::endl<<std::endl;
+          int i=0;
+          for (const NodeMatch& input : match.inputs) {
+            std::cout<<"MatchXXXX"<<std::endl;
+            i++;
+          }
+        }
+        CopyOriginalMatch(match, new_nodes);
         return Status::OK();
       },
       {true}, &replaced_graph_def));
@@ -938,7 +1009,14 @@ Status QuantizeNodes(const GraphDef& input_graph_def,
   // since the two together cancel each other out. This allows us to keep the
   // data flow in eight bit where two adjacent ops are in eight bit, but still
   // keep interoperability with float ops.
-  TF_RETURN_IF_ERROR(RemoveRedundantQuantizations(deduped_graph_def, context,
+  //
+  GraphDef rmredundant_graph_def;
+  TF_RETURN_IF_ERROR(RemoveRedundantQuantizations(merged_graph_def, context,
+                                                  &rmredundant_graph_def));
+  TF_RETURN_IF_ERROR(IsGraphValid(rmredundant_graph_def));
+  
+  GraphDef deduped_graph_def_1;
+  TF_RETURN_IF_ERROR(ReplaceConvAndBiasAdd(rmredundant_graph_def, context,
                                                   output_graph_def));
   TF_RETURN_IF_ERROR(IsGraphValid(*output_graph_def));
 
@@ -946,6 +1024,8 @@ Status QuantizeNodes(const GraphDef& input_graph_def,
 }
 
 REGISTER_GRAPH_TRANSFORM("quantize_nodes", QuantizeNodes);
+
+REGISTER_GRAPH_TRANSFORM("replace_conv_bias", ReplaceConvAndBiasAdd);
 
 REGISTER_GRAPH_TRANSFORM("merge_duplicate_nodes", MergeDuplicateNodes);
 
