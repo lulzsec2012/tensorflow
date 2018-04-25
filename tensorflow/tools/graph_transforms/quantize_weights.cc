@@ -158,6 +158,8 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	  quantized_tensor_value[i] = static_cast<int32_t>(round(old_tensor_value[i] * weight_scale * last_activation_scale));	  
 	 
 	}
+	float min = static_cast<float>(-(1 << 31) / weight_scale / last_activation_scale);
+	float max = static_cast<float>((1 << 31) / weight_scale / last_activation_scale);
         NodeDef quantized_const_node;
         quantized_const_node.set_op("Const");
         quantized_const_node.set_name(old_const_node.name() +
@@ -173,7 +175,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
         min_node.set_name(old_const_node.name() + "_quantized_min");
         SetNodeAttr("dtype", DT_FLOAT, &min_node);
         Tensor min_tensor(DT_FLOAT, {});
-        min_tensor.scalar<float>()() = 0;
+        min_tensor.scalar<float>()() = min;
         SetNodeTensorAttr<float>("value", min_tensor, &min_node);
         new_nodes->push_back(min_node);
 	quant_bias_names.push_back(min_node.name());
@@ -182,7 +184,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
         max_node.set_name(old_const_node.name() + "_quantized_max");
         SetNodeAttr("dtype", DT_FLOAT, &max_node);
         Tensor max_tensor(DT_FLOAT, {});
-        max_tensor.scalar<float>()() = 6;
+        max_tensor.scalar<float>()() = max;
         SetNodeTensorAttr<float>("value", max_tensor, &max_node);
         new_nodes->push_back(max_node);
 	quant_bias_names.push_back(max_node.name());
@@ -191,7 +193,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
         dequantize_node.set_op("Dequantize");
         dequantize_node.set_name(old_const_node.name());
         SetNodeAttr("T", DT_QINT32, &dequantize_node);
-        SetNodeAttr("mode", "MIN_FIRST", &dequantize_node);
+        SetNodeAttr("mode", "SCALED", &dequantize_node);
         AddNodeInput(quantized_const_node.name(), &dequantize_node);
         AddNodeInput(min_node.name(), &dequantize_node);
 	AddNodeInput(max_node.name(), &dequantize_node);
