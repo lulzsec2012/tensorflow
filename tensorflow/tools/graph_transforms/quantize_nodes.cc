@@ -350,25 +350,53 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
                                           const std::set<string>& input_nodes,
                                           const std::set<string>& output_nodes,
                                           std::vector<NodeDef>* new_nodes) {
-        //{"RequantizationRange"},
-        //{"RequantizationRange"},
-        const NodeDef& quantize_node = match.node;
-        const NodeDef& dequantize_node = match.inputs[0].node;
-        std::cout<<"nameR::"<<quantize_node.name()<<std::endl;
-	std::cout<<"     ::"<<match.inputs[0].node.name()<<std::endl;
-	std::cout<<"     ::"<<match.inputs[0].inputs[0].node.name()<<std::endl;
-	std::cout<<"     ::"<<match.inputs[0].inputs[0].inputs[0].node.name()<<std::endl;
-	if("MobilenetV1/MobilenetV1/Conv2d_6_pointwise/act_quant/FakeQuantWithMinMaxVars_hoisted_eightbit/requantize" == quantize_node.name() && 1==0){
-          int n = match.node.input_size();
-          std::cout<<"Size："<<n<<std::endl;
-          std::cout<<"match.DebugString()="<<std::endl<<match.DebugString()<<std::endl<<std::endl;
-          int i=0;
-          for (const NodeMatch& input : match.inputs) {
-            std::cout<<"MatchXXXX"<<std::endl;
-            i++;
-          }
-        }
-        CopyOriginalMatch(match, new_nodes);
+	const NodeDef& fake_requantize_node = match.node;
+        const NodeDef& quantized_conv_node = match.inputs[0].inputs[0].inputs[0].node;
+        const NodeDef& fake_requantize_min_node = match.inputs[3].node;
+        const NodeDef& fake_requantize_max_node = match.inputs[4].node;
+	new_nodes->push_back(fake_requantize_min_node);
+	new_nodes->push_back(fake_requantize_max_node);
+	const NodeDef& quantized_bias_node = match.inputs[0].inputs[3].node;
+	const NodeDef& quantized_bias_min_node = match.inputs[0].inputs[4].node;
+	const NodeDef& quantized_bias_max_node = match.inputs[0].inputs[5].node;
+	new_nodes->push_back(quantized_bias_node);
+	new_nodes->push_back(quantized_bias_min_node);
+	new_nodes->push_back(quantized_bias_max_node);
+	
+	//quantized_conv
+        new_nodes->push_back(quantized_conv_node);
+
+	//quantized_add
+	NodeDef quantized_add_node; // = match.inputs[0].node;
+	quantized_add_node.set_op("QuantizedAdd");
+	quantized_add_node.set_name(match.inputs[0].node.name());
+	SetNodeAttr("T1", DT_QINT32, &quantized_add_node);
+	SetNodeAttr("T2", DT_QINT32, &quantized_add_node);
+	SetNodeAttr("Toutput", DT_QINT32, &quantized_add_node);
+	quantized_add_node.mutable_input()->Clear();
+        AddNodeInput(quantized_conv_node.name() + ":0", &quantized_add_node);
+        AddNodeInput(quantized_conv_node.name() + ":1", &quantized_add_node);
+        AddNodeInput(quantized_conv_node.name() + ":2", &quantized_add_node);
+	AddNodeInput(quantized_bias_node.name()    , &quantized_add_node);
+        AddNodeInput(quantized_bias_min_node.name(), &quantized_add_node);
+        AddNodeInput(quantized_bias_max_node.name(), &quantized_add_node);
+        new_nodes->push_back(quantized_add_node);
+
+	//requantize
+        NodeDef requantize_node;
+        requantize_node = fake_requantize_node;
+        requantize_node.mutable_input()->Clear();
+        AddNodeInput(quantized_add_node.name() + ":0", &requantize_node);
+        AddNodeInput(quantized_add_node.name() + ":1", &requantize_node);
+        AddNodeInput(quantized_add_node.name() + ":2", &requantize_node);
+        AddNodeInput(fake_requantize_min_node.name(), &requantize_node);
+        AddNodeInput(fake_requantize_max_node.name(), &requantize_node);
+        new_nodes->push_back(requantize_node);
+	
+	//for debug
+        //std::cout<<"Size："<<match.node.input_size()<<std::endl;
+        //std::cout<<"match.DebugString()="<<std::endl<<match.DebugString()<<std::endl<<std::endl;
+        //CopyOriginalMatch(match, new_nodes);
         return Status::OK();
       },
       {true}, &replaced_graph_def));
