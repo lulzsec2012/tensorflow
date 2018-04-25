@@ -37,16 +37,29 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
                        GraphDef* output_graph_def) {
   int32 minimum_size;
   TF_RETURN_IF_ERROR(
-      context.GetOneInt32Parameter("minimum_size", 1024, &minimum_size));
+      context.GetOneInt32Parameter("minimum_size", 2, &minimum_size));
 
   //add ingenic
   std::vector<string> quant_bias_names;
   GraphDef tmp_output_graph_def;
+  
   TF_RETURN_IF_ERROR(ReplaceMatchingOpTypes(
 					    input_graph_def,
-					    {"BiaAdd|Add",
+					    {"Add|BiasAdd",
 						{
-						  {"Conv2D"},
+						  {"Conv2D|DepthwiseConv2dNative",
+						      {
+							{"*",
+							    {
+							      {"*"},
+							      {"*"},
+							      {"*"},
+							    },
+							},
+							{"*"},							  
+							
+						      },
+						  },
 						  {"*"},
 						},
 					    },
@@ -55,11 +68,19 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
                      const std::set<string>& input_nodes,
                      const std::set<string>& output_nodes,
                      std::vector<NodeDef>* new_nodes) {
+	  std::cerr << "match_node.name: "<< match.node.name() << std::endl;  
 	const NodeDef& origin_node = match.node;
         const NodeDef& conv_const_node = match.inputs[0].node;
 	const NodeDef& old_const_node = match.inputs[1].node;
+	const NodeDef& fake_quant_weight_const_node = match.inputs[0].inputs[1].node;
+	const NodeDef& fake_quant_acvation_const_node = match.inputs[0].inputs[0].node;
 	new_nodes->push_back(conv_const_node);
 	new_nodes->push_back(match.node);
+	new_nodes->push_back(fake_quant_weight_const_node);
+	new_nodes->push_back(fake_quant_acvation_const_node);
+	new_nodes->push_back(match.inputs[0].inputs[0].inputs[0].node);
+	new_nodes->push_back(match.inputs[0].inputs[0].inputs[1].node);
+	new_nodes->push_back(match.inputs[0].inputs[0].inputs[2].node); 
         if (!old_const_node.attr().count("dtype")) {
           return errors::InvalidArgument("No 'dtype' attribute for Const node ",
                                          old_const_node.name());
@@ -82,11 +103,12 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
           new_nodes->push_back(old_const_node);
           return Status::OK();
         }
-
-
-	const NodeDef& weight_node = match.inputs[0].inputs[0].node;
+	//std::cout << "************************debug2" << std::endl;
+	//std::cout << "name: " << match.inputs[0].node.name() <<" "<<  match.inputs[0].node.op()<<std::endl;
+	//std::cout<< match.inputs[0].inputs[0].node.name() <<std::endl;
+	const NodeDef& weight_node = match.inputs[0].inputs[1].node;
 	Tensor weight_tensor;
-	if (!weight_tensor.FromProto(conv_const_node.attr().at("value").tensor())) {
+	if (!weight_tensor.FromProto(weight_node.attr().at("value").tensor())) {
 	  return errors::InvalidArgument("Decoding Tensor faild for node",
 					weight_node.name());
 	}
@@ -111,9 +133,9 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	  }
 	}
 	float weight_scale = 255 / (weight_max - weight_min);
-	const NodeDef& last_activation_node = match.inputs[0].inputs[1].node;
-	const NodeDef& last_activation_min_node = match.inputs[0].inputs[1].inputs[1].node;
-	const NodeDef& last_activation_max_node = match.inputs[0].inputs[1].inputs[2].node;
+	const NodeDef& last_activation_node = match.inputs[0].inputs[0].node;
+	const NodeDef& last_activation_min_node = match.inputs[0].inputs[0].inputs[1].node;
+	const NodeDef& last_activation_max_node = match.inputs[0].inputs[0].inputs[2].node;
 	Tensor last_activation_min, last_activation_max;
 	if(!last_activation_min.FromProto(last_activation_min_node.attr().at("value").tensor())){
 	  return errors::InvalidArgument("Decoding Tensor faild for node",
@@ -128,15 +150,14 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	float last_activation_scale = 255 / (last_activation_max_value[0] - last_activation_min_value[0]);	
 
         Tensor quantized_tensor(DT_QUINT8, old_tensor.shape());
-	float* quantized_tensor_value = quantized_tensor.flat<float>().data();
+	quint8* quantized_tensor_value = quantized_tensor.flat<quint8>().data();
 	const size_t quantized_tensor_elements = quantized_tensor.NumElements();
 
 	for (int i = 0; i < quantized_tensor_elements; i++){
 
-	  quantized_tensor_value[i] = round(old_tensor_value[i] * weight_scale * last_activation_scale);	  
+	  quantized_tensor_value[i] = static_cast<quint8>(round(old_tensor_value[i] * weight_scale * last_activation_scale));	  
 	 
 	}
-
         NodeDef quantized_const_node;
         quantized_const_node.set_op("Const");
         quantized_const_node.set_name(old_const_node.name() +
@@ -155,7 +176,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
         min_tensor.scalar<float>()() = 0;
         SetNodeTensorAttr<float>("value", min_tensor, &min_node);
         new_nodes->push_back(min_node);
-
+	quant_bias_names.push_back(min_node.name());
         NodeDef max_node;
         max_node.set_op("Const");
         max_node.set_name(old_const_node.name() + "_quantized_max");
@@ -164,7 +185,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
         max_tensor.scalar<float>()() = 6;
         SetNodeTensorAttr<float>("value", max_tensor, &max_node);
         new_nodes->push_back(max_node);
-	
+	quant_bias_names.push_back(max_node.name());
 
         NodeDef dequantize_node;
         dequantize_node.set_op("Dequantize");
@@ -195,13 +216,17 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
                      std::vector<NodeDef>* new_nodes) {
         const NodeDef& old_const_node = match.node;
 	bool bias_flag = false;
+
 	for (int i = 0; i < quant_bias_names.size(); i++){
 	  if (match.node.name() == quant_bias_names[i]){
 	    bias_flag = true;
 	    new_nodes->push_back(match.node);
+	    break;
 	  }
 	}
+
 	if (bias_flag == false){
+
         if (!old_const_node.attr().count("dtype")) {
           return errors::InvalidArgument("No 'dtype' attribute for Const node ",
                                          old_const_node.name());
