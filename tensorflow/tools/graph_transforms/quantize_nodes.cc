@@ -140,6 +140,14 @@ const std::vector<QuantizedOpInfo>& GetQuantizedOpList() {
        DT_QUINT8,
        {1},
        QuantizedOpInfo::CONTIGUOUS_MIN_MAX},
+      // white
+      {"DepthwiseConv2dNative",
+       {"strides", "padding"},
+       {{"Tinput", DT_QUINT8}, {"Tfilter", DT_QUINT8}, {"out_type", DT_QINT32}},
+       DT_QUINT8,
+       DT_QINT32,
+       {},
+       QuantizedOpInfo::CONTIGUOUS_MIN_MAX},
   };
   return op_list;
 }
