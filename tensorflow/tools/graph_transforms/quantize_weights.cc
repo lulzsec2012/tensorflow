@@ -68,7 +68,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
                      const std::set<string>& input_nodes,
                      const std::set<string>& output_nodes,
                      std::vector<NodeDef>* new_nodes) {
-	  std::cerr << "match_node.name: "<< match.node.name() << std::endl;  
+	  //std::cerr << "match_node.name: "<< match.node.name() << std::endl;  
 	const NodeDef& origin_node = match.node;
         const NodeDef& conv_const_node = match.inputs[0].node;
 	const NodeDef& old_const_node = match.inputs[1].node;
@@ -149,20 +149,20 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	const float* last_activation_max_value = last_activation_max.flat<float>().data();
 	float last_activation_scale = 255 / (last_activation_max_value[0] - last_activation_min_value[0]);	
 
-        Tensor quantized_tensor(DT_QUINT8, old_tensor.shape());
-	quint8* quantized_tensor_value = quantized_tensor.flat<quint8>().data();
+        Tensor quantized_tensor(DT_QINT32, old_tensor.shape());
+	qint32* quantized_tensor_value = quantized_tensor.flat<qint32>().data();
 	const size_t quantized_tensor_elements = quantized_tensor.NumElements();
 
 	for (int i = 0; i < quantized_tensor_elements; i++){
 
-	  quantized_tensor_value[i] = static_cast<quint8>(round(old_tensor_value[i] * weight_scale * last_activation_scale));	  
+	  quantized_tensor_value[i] = static_cast<int32_t>(round(old_tensor_value[i] * weight_scale * last_activation_scale));	  
 	 
 	}
         NodeDef quantized_const_node;
         quantized_const_node.set_op("Const");
         quantized_const_node.set_name(old_const_node.name() +
                                       "_quantized_const");
-        SetNodeAttr("dtype", DT_QUINT8, &quantized_const_node);
+        SetNodeAttr("dtype", DT_QINT32, &quantized_const_node);
         SetNodeTensorAttr<float>("value", quantized_tensor,
                                  &quantized_const_node);
         new_nodes->push_back(quantized_const_node);
@@ -190,7 +190,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
         NodeDef dequantize_node;
         dequantize_node.set_op("Dequantize");
         dequantize_node.set_name(old_const_node.name());
-        SetNodeAttr("T", DT_QUINT8, &dequantize_node);
+        SetNodeAttr("T", DT_QINT32, &dequantize_node);
         SetNodeAttr("mode", "MIN_FIRST", &dequantize_node);
         AddNodeInput(quantized_const_node.name(), &dequantize_node);
         AddNodeInput(min_node.name(), &dequantize_node);
