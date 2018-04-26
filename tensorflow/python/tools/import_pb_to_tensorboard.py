@@ -28,7 +28,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.platform import app
 from tensorflow.python.platform import gfile
 from tensorflow.python.summary import summary
-
+import tensorflow as tf
 
 def import_to_tensorboard(model_dir, log_dir):
   """View an imported protobuf model (`.pb` file) as a graph in Tensorboard.
@@ -42,7 +42,9 @@ def import_to_tensorboard(model_dir, log_dir):
     Launch Tensorboard by pointing it to the log directory.
     View your imported `.pb` model as a graph.
   """
-  with session.Session(graph=ops.Graph()) as sess:
+  with tf.device('/device:GPU:2'):
+    graph = ops.Graph()
+  with session.Session(graph=graph) as sess:
     with gfile.FastGFile(model_dir, "rb") as f:
       graph_def = graph_pb2.GraphDef()
       graph_def.ParseFromString(f.read())

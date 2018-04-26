@@ -232,7 +232,6 @@ Status MergeDuplicateNodes(const GraphDef& input_graph_def,
         if (is_duplicate) {
           const string original_name = hash_node_list[0]->name();
           inputs_to_rename[current_node->name() + ":*"] = original_name;
-	  std::cout<<"current_node->name():"<<current_node->name()<<" : "<<original_name<<std::endl;
           any_duplicates_found = true;
         } else {
           NodeDef* new_node = merged_graph_def.mutable_node()->Add();
@@ -307,7 +306,6 @@ Status RemoveRedundantQuantizations(const GraphDef& input_graph_def,
                           std::unordered_set<string>(), output_graph_def);
 }
 
-  //
 Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
                                     const TransformFuncContext& context,
                                     GraphDef* output_graph_def) {
@@ -315,7 +313,7 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
   for (const string& output_name : context.output_names) {
     graph_outputs.insert(NodeNameFromInput(output_name));
   }
-  std::cout<<"Hello Tensorflow!"<<std::endl;
+
   std::map<string, string> inputs_to_rename;
   GraphDef replaced_graph_def;
   TF_RETURN_IF_ERROR(ReplaceMatchingOpTypes(
@@ -346,7 +344,7 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
 	    {"*"},	
 	  }
       },  // clang-format on
-      [&inputs_to_rename, &graph_outputs](const NodeMatch& match,
+      [](const NodeMatch& match,
                                           const std::set<string>& input_nodes,
                                           const std::set<string>& output_nodes,
                                           std::vector<NodeDef>* new_nodes) {
@@ -354,9 +352,11 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
         const NodeDef& quantized_conv_node = match.inputs[0].inputs[0].inputs[0].node;
         const NodeDef& fake_requantize_min_node = match.inputs[3].node;
         const NodeDef& fake_requantize_max_node = match.inputs[4].node;
+#if 1
+	//std::cout<<"fake_requantize_node.name():"<<fake_requantize_node.name()<<" <> "<<fake_requantize_node.op()<<std::endl;
 	new_nodes->push_back(fake_requantize_min_node);
 	new_nodes->push_back(fake_requantize_max_node);
-	const NodeDef& quantized_bias_node = match.inputs[0].inputs[3].node;
+	const NodeDef& quantized_bias_node = match.inputs[0].inputs[1].node;
 	const NodeDef& quantized_bias_min_node = match.inputs[0].inputs[4].node;
 	const NodeDef& quantized_bias_max_node = match.inputs[0].inputs[5].node;
 	new_nodes->push_back(quantized_bias_node);
@@ -374,35 +374,35 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
 	SetNodeAttr("T2", DT_QINT32, &quantized_add_node);
 	SetNodeAttr("Toutput", DT_QINT32, &quantized_add_node);
 	quantized_add_node.mutable_input()->Clear();
-        AddNodeInput(quantized_conv_node.name() + ":0", &quantized_add_node);
-        AddNodeInput(quantized_conv_node.name() + ":1", &quantized_add_node);
-        AddNodeInput(quantized_conv_node.name() + ":2", &quantized_add_node);
-	AddNodeInput(quantized_bias_node.name()    , &quantized_add_node);
-        AddNodeInput(quantized_bias_min_node.name(), &quantized_add_node);
-        AddNodeInput(quantized_bias_max_node.name(), &quantized_add_node);
-        new_nodes->push_back(quantized_add_node);
+	AddNodeInput(quantized_conv_node.name() + ":0", &quantized_add_node);
+	AddNodeInput(quantized_bias_node.name()	   , &quantized_add_node);
+	AddNodeInput(quantized_conv_node.name() + ":1", &quantized_add_node);
+	AddNodeInput(quantized_conv_node.name() + ":2", &quantized_add_node);
+	AddNodeInput(quantized_bias_min_node.name(), &quantized_add_node);
+	AddNodeInput(quantized_bias_max_node.name(), &quantized_add_node);
+	new_nodes->push_back(quantized_add_node);
 
 	//requantize
         NodeDef requantize_node;
         requantize_node = fake_requantize_node;
         requantize_node.mutable_input()->Clear();
         AddNodeInput(quantized_add_node.name() + ":0", &requantize_node);
-        AddNodeInput(quantized_add_node.name() + ":1", &requantize_node);
-        AddNodeInput(quantized_add_node.name() + ":2", &requantize_node);
+	AddNodeInput(quantized_add_node.name() + ":1", &requantize_node);
+	AddNodeInput(quantized_add_node.name() + ":2", &requantize_node);
         AddNodeInput(fake_requantize_min_node.name(), &requantize_node);
         AddNodeInput(fake_requantize_max_node.name(), &requantize_node);
         new_nodes->push_back(requantize_node);
-	
+#else
 	//for debug
         //std::cout<<"Size："<<match.node.input_size()<<std::endl;
-        //std::cout<<"match.DebugString()="<<std::endl<<match.DebugString()<<std::endl<<std::endl;
-        //CopyOriginalMatch(match, new_nodes);
+	//std::cout<<"match.DebugString()="<<std::endl<<match.DebugString()<<std::endl<<std::endl;
+	CopyOriginalMatch(match, new_nodes);
+#endif
         return Status::OK();
       },
-      {true}, &replaced_graph_def));
-
-  return RenameNodeInputs(replaced_graph_def, inputs_to_rename,
-                          std::unordered_set<string>(), output_graph_def);
+      {true}, output_graph_def));
+  
+  return Status::OK();
 }
 
 // If the user has passed in the input_min and input_max args, then we need to
@@ -1038,6 +1038,12 @@ Status QuantizeNodes(const GraphDef& input_graph_def,
   // data flow in eight bit where two adjacent ops are in eight bit, but still
   // keep interoperability with float ops.
   //
+#if 1
+  GraphDef rmredundant_graph_def;
+  TF_RETURN_IF_ERROR(RemoveRedundantQuantizations(merged_graph_def, context,
+                                                  output_graph_def));
+  TF_RETURN_IF_ERROR(IsGraphValid(*output_graph_def));
+#else
   GraphDef rmredundant_graph_def;
   TF_RETURN_IF_ERROR(RemoveRedundantQuantizations(merged_graph_def, context,
                                                   &rmredundant_graph_def));
@@ -1047,7 +1053,7 @@ Status QuantizeNodes(const GraphDef& input_graph_def,
   TF_RETURN_IF_ERROR(ReplaceConvAndBiasAdd(rmredundant_graph_def, context,
                                                   output_graph_def));
   TF_RETURN_IF_ERROR(IsGraphValid(*output_graph_def));
-
+#endif
   return Status::OK();
 }
 
