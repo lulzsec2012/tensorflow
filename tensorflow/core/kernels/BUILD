@@ -5215,6 +5215,7 @@ tf_kernel_library(
         "quantized_batch_norm_op.cc",
         "quantized_bias_add_op.cc",
         "quantized_concat_op.cc",
+	"quantized_depthwise_conv_op.cc",
         "quantized_conv_ops.cc",
         "quantized_instance_norm.cc",
         "quantized_matmul_op.cc",
@@ -5229,6 +5230,7 @@ tf_kernel_library(
     hdrs = [
         "meta_support.h",
         "reference_gemm.h",
+	"quantized_depthwise_conv_op.h",
     ],
     deps = [
         ":concat_lib_hdrs",
@@ -5246,6 +5248,7 @@ tf_kernel_library(
         "//tensorflow/core:math_ops_op_lib",
         "//tensorflow/core:nn_ops_op_lib",
         "//third_party/eigen3",
+	"//tensorflow/core/kernels/neon:neon_depthwise_conv_op",
         "@gemmlowp",
     ],
 )

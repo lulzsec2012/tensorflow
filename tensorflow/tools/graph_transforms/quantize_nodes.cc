@@ -140,6 +140,13 @@ const std::vector<QuantizedOpInfo>& GetQuantizedOpList() {
        DT_QUINT8,
        {1},
        QuantizedOpInfo::CONTIGUOUS_MIN_MAX},
+      {"DepthwiseConv2dNative",
+       {"strides", "padding"},
+       {{"Tinput", DT_QUINT8}, {"Tfilter", DT_QUINT8}, {"out_type", DT_QINT32}},
+       DT_QUINT8,
+       DT_QINT32,
+       {},
+       QuantizedOpInfo::CONTIGUOUS_MIN_MAX},
   };
   return op_list;
 }
@@ -324,7 +331,7 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
 		{
 		  {"Requantize",
 		      {
-			{"QuantizedConv2D"},
+			{"QuantizedConv2D|QuantizedDepthwiseConv2dNative"},
 			{"*"},
 			{"*"},
 			{"*"},
