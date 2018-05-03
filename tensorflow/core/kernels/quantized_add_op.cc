@@ -613,6 +613,14 @@ class QuantizedJZAddOp : public OpKernel {
       z_data[i] = x_data[i] + y_data[i];
     }
 
+    Tensor* z_min = nullptr;
+    OP_REQUIRES_OK(context, context->allocate_output(1, {}, &z_min));
+    z_min->flat<float>()(0) = min_x;
+    
+    Tensor* z_max = nullptr;
+    OP_REQUIRES_OK(context, context->allocate_output(2, {}, &z_max));
+    z_max->flat<float>()(0) = max_x;
+
   }
 };
 
