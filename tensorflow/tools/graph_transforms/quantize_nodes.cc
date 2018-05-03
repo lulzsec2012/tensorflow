@@ -327,7 +327,7 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
       input_graph_def,  // clang-format off
       {"Requantize",
 	  {
-	    {"QuantizedAdd",
+	    {"QuantizedAdd|QuantizedBiasAdd",
 		{
 		  {"Requantize",
 		      {
