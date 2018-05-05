@@ -608,11 +608,28 @@ class QuantizedJZAddOp : public OpKernel {
     const T* y_data = y.flat<T>().data();
     Toutput* z_data = z->flat<Toutput>().data();
 
-    const size_t num_elements = x.NumElements();
-    for (int i = 0; i < num_elements; i++){
-      z_data[i] = x_data[i] + y_data[i];
+    const T* vector_data;
+    int64 vector_num_elements;
+    const T* tensor_data;
+    int64 tensor_num_elements;
+    if (x.NumElements() < y.NumElements()) {
+      vector_data = x_data;
+      vector_num_elements = x.NumElements();
+      tensor_data = y_data;
+      tensor_num_elements = y.NumElements();
+    } else {
+      vector_data = y_data;
+      vector_num_elements = y.NumElements();
+      tensor_data = x_data;
+      tensor_num_elements = x.NumElements();
     }
 
+    for (int i = 0; i < tensor_num_elements; ++i) {
+      const int64 vector_i = i % vector_num_elements;
+      z_data[i] = vector_data[vector_i] + tensor_data[i];
+    }
+
+    
     Tensor* z_min = nullptr;
     OP_REQUIRES_OK(context, context->allocate_output(1, {}, &z_min));
     z_min->flat<float>()(0) = min_x;
