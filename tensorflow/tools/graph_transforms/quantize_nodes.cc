@@ -331,7 +331,7 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
 		{
 		  {"Requantize",
 		      {
-			{"QuantizedConv2D|QuantizedDepthwiseConv2dNative"},
+			{"QuantizedConv2D|QuantizedDepthwiseConv2dNative|QuantizedMatMul"},
 			{"*"},
 			{"*"},
 			{"*"},
