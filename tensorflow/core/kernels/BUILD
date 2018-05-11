@@ -5078,6 +5078,7 @@ filegroup(
         "reference_gemm.h",
         "requantization_range_op.cc",
         "requantize.cc",
+	"jzrequantize.cc",
         "reshape_op.h",
     ],
     visibility = ["//visibility:public"],
@@ -5224,6 +5225,7 @@ tf_kernel_library(
         "quantized_resize_bilinear_op.cc",
         "requantization_range_op.cc",
         "requantize.cc",
+	"jzrequantize.cc",
         "reshape_op.h",
     ],
     hdrs = [
