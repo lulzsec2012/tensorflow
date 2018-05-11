@@ -272,13 +272,14 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
   GraphDef graph_def_tmp[7];
   graph_def_tmp[0] = input_graph_def;
   for(std::vector<OpTypePattern>::iterator it=pattern_vec.begin();it != pattern_vec.end();it++){
-    OpTypePattern pattern = *it;
+
     const int max_depth = 3;
     for (int depth = 0; depth < max_depth; depth++) {
+      OpTypePattern pattern = *it;
       for (int i = 0; i < depth; i++) {
 	pattern = {"*", {pattern}};
       }
-      OpTypePattern pattern_conv = {"Conv2D|DepthwiseConv2dNative",{pattern,{"*"}}};
+      OpTypePattern pattern_conv = {"Conv2D|DepthwiseConv2dNative|MatMul",{pattern,{"*"}}};
       OpTypePattern pattern_bias = {"Add|BiasAdd",{pattern_conv,{"*"}}};
       TF_RETURN_IF_ERROR(ReplaceMatchingOpTypes(graph_def_tmp[match_idx],pattern_bias,node_generator,{}, &graph_def_tmp[match_idx+1]));
       TF_RETURN_IF_ERROR(IsGraphValid(graph_def_tmp[match_idx+1]));
