@@ -74,7 +74,7 @@ def Quantize(graph,
     scope += '/'
 
   input_to_ops_map = input_to_ops.InputToOps(graph)
-  for layer_match in _FindLayersToQuantize(graph):
+  for layer_match in _FindLayersToQuantize(graph, is_training):
     # Quantize the weights.
     context = _GetContextFromOp(layer_match.layer_op)
 
@@ -93,16 +93,25 @@ def Quantize(graph,
         bits=weight_bits,
         consumer_scope=scope)
 
-    # Quantize the activations.
-    consumer_ops = input_to_ops_map.ConsumerOperations(
-        layer_match.activation_op)
-    add_context = context
-    if layer_match.bypass_op:
-      add_context = re.search(r'^(.*)/([^/]+)', context).group(1)
+    # # Quantize the activations.white
+    # consumer_ops = input_to_ops_map.ConsumerOperations(
+    #     layer_match.activation_op)
+    # add_context = context
+    # if layer_match.bypass_op:
+    #   add_context = re.search(r'^(.*)/([^/]+)', context).group(1)
 
-    # If `scope` is given, only quantize it if the producer of weights
-    # (usually it's the layer op) is in the right scope.
-    _InsertQuantOp(
+    # white Quantize the activations.
+    if layer_match.activation_op is not None:
+      consumer_ops = input_to_ops_map.ConsumerOperations(
+        layer_match.activation_op)
+      add_context = context
+      if layer_match.bypass_op:
+        add_context = re.search(r'^(.*)/([^/]+)', context).group(1)
+      
+      
+      # If `scope` is given, only quantize it if the producer of weights
+      # (usually it's the layer op) is in the right scope.
+      _InsertQuantOp(
         add_context,
         'act_quant',
         layer_match.activation_op,
@@ -168,7 +177,7 @@ def Quantize(graph,
           producer_scope=scope)
 
 
-def _FindLayersToQuantize(graph):
+def _FindLayersToQuantize(graph, is_training):
   """Matches layers in graph to quantize.
 
   The following patterns get matched. Nodes surrounded by [] will be
@@ -251,13 +260,29 @@ def _FindLayersToQuantize(graph):
 
   # The input to the activation can come from bias add, fold bias add, the
   # bypasses.
-  activation_pattern = graph_matcher.OpTypePattern(
+
+  if (is_training):
+    # white -- creat_training_graph
+    print("creat_training_graph")
+    white_activation_pattern = graph_matcher.OpTypePattern(
       '|'.join(_ACTIVATION_TYPES),
       inputs=[
-          graph_matcher.OneofPattern([
-              bias_add_pattern, folded_bias_add_pattern, bypass_pattern_a,
-              bypass_pattern_b
-          ])
+        graph_matcher.OneofPattern([
+          bias_add_pattern, folded_bias_add_pattern, bypass_pattern_a,
+          bypass_pattern_b
+        ])
+      ])
+    activation_pattern = graph_matcher.OpTypePattern('Relu', inputs=[white_activation_pattern])
+  else:
+    # white -- creat_eval_graph
+    print("creat_eval_graph")
+    activation_pattern = graph_matcher.OpTypePattern(
+      '|'.join(_ACTIVATION_TYPES),
+      inputs=[
+        graph_matcher.OneofPattern([
+          bias_add_pattern, folded_bias_add_pattern, bypass_pattern_a,
+          bypass_pattern_b
+        ])
       ])
 
   post_activation_bypass_pattern_a = graph_matcher.OpTypePattern(

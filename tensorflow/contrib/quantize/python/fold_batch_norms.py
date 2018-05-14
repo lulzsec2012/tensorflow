@@ -73,7 +73,7 @@ def _FoldFusedBatchNorms(graph, is_training, freeze_batch_norm_delay):
   Raises:
     ValueError: When batch norm folding fails.
   """
-  for match in _FindFusedBatchNorms(graph):
+  for match in _FindFusedBatchNorms(graph, is_training):
     scope, sep, _ = match.layer_op.name.rpartition('/')
     # Make sure new ops are added to `graph` and put on the same device as
     # `bn_op`. The '/' (i.e. `sep`) ensures that we reuse the existing scope
@@ -134,12 +134,12 @@ def _FoldFusedBatchNorms(graph, is_training, freeze_batch_norm_delay):
 
       nodes_modified_count = graph_editor.reroute_ts(bias_add_tensor,
                                                      match.output_tensor)
-      if nodes_modified_count == 0:
-        raise ValueError('Folding batch norms failed, %s had no outputs.' %
-                         match.output_tensor.name)
+      # if nodes_modified_count != 1:
+      #   raise ValueError(
+      #       'Unexpected inputs to op: %s' % match.output_tensor.name)
 
 
-def _FindFusedBatchNorms(graph):
+def _FindFusedBatchNorms(graph, is_training):
   """Finds all ops and tensors related to found FusedBatchNorms.
 
   Args:
@@ -175,6 +175,19 @@ def _FindFusedBatchNorms(graph):
       'Reshape', inputs=[batch_norm_pattern,
                          graph_matcher.OpTypePattern('*')])
 
+  if (is_training):
+    ######################################
+    # white -- creat_training_graph
+    print("creat_training_graph")
+    white_Identity = graph_matcher.OpTypePattern('Identity', inputs=[batch_norm_pattern])
+    white_shape = graph_matcher.OpTypePattern('Shape', inputs=[layer_pattern])
+    matmul_bn_output_reshape_pattern = graph_matcher.OpTypePattern('Reshape', inputs=[white_Identity, white_shape])
+  else:
+    ######################################
+    # white -- creat_eval_graph
+    print("creat_eval_graph")
+
+  
   bn_matcher = graph_matcher.GraphMatcher(
       graph_matcher.OneofPattern(
           [matmul_bn_output_reshape_pattern, batch_norm_pattern]))
