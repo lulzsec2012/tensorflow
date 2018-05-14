@@ -360,17 +360,28 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
         const NodeDef& fake_requantize_min_node = match.inputs[3].node;
         const NodeDef& fake_requantize_max_node = match.inputs[4].node;
 #if 1
-	new_nodes->push_back(fake_requantize_min_node);
-	new_nodes->push_back(fake_requantize_max_node);
+	
 	const NodeDef& quantized_bias_node = match.inputs[0].inputs[1].node;
 	const NodeDef& quantized_bias_min_node = match.inputs[0].inputs[4].node;
 	const NodeDef& quantized_bias_max_node = match.inputs[0].inputs[5].node;
+
+	if(quantized_bias_node.attr().at("dtype").type() == 12)
+	  {
+	    // "type() == 12" means that the node's type is quint8.
+	    CopyOriginalMatch(match, new_nodes);
+	    return Status::OK();
+	  }
+
+	new_nodes->push_back(fake_requantize_min_node);
+	new_nodes->push_back(fake_requantize_max_node);
 	new_nodes->push_back(quantized_bias_node);
 	new_nodes->push_back(quantized_bias_min_node);
 	new_nodes->push_back(quantized_bias_max_node);
 	
 	//quantized_conv
         new_nodes->push_back(quantized_conv_node);
+
+	
 
 #if 1
 	//quantized_add
