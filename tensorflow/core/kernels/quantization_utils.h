@@ -38,6 +38,111 @@ limitations under the License.
 #include "tensorflow/core/lib/core/threadpool.h"
 
 namespace tensorflow {
+//add ingenic
+struct QuantizedParams{
+  float scale;
+  int32 zero_point;
+};
+// calculate the multiplier
+template <typename T>
+QuantizedParams ChooseQuantizationParams(float rmin, float rmax) {
+  const T qmin = std::numeric_limits<T>::min();
+  const T qmax = std::numeric_limits<T>::max();
+  const double qmin_double = qmin;
+  const double qmax_double = qmax;
+  // 0 should always be a representable value. Let's assume that the initial
+  // min,max range contains 0.
+  DCHECK_LE(rmin, 0.);
+  DCHECK_GE(rmax, 0.);
+  if (rmin == rmax) {
+    // Special case where the min,max range is a point. Should be {0}.
+    DCHECK_EQ(rmin, 0.);
+    DCHECK_EQ(rmax, 0.);
+    QuantizedParams quantization_params;
+    quantization_params.zero_point = 0;
+    quantization_params.scale = 0.;
+    return quantization_params;
+  }
+
+  // General case.
+  //
+  // First determine the scale.
+  const double scale = (rmax - rmin) / (qmax_double - qmin_double);
+
+  // Zero-point computation.
+  // First the initial floating-point computation. The zero-point can be
+  // determined from solving an affine equation for any known pair
+  // (real value, corresponding quantized value).
+  // We know two such pairs: (rmin, qmin) and (rmax, qmax).
+  // The arithmetic error on the zero point computed from either pair
+  // will be roughly machine_epsilon * (sum of absolute values of terms)
+  // so we want to use the variant that adds the smaller terms.
+  const double zero_point_from_min = qmin_double - rmin / scale;
+  const double zero_point_from_max = qmax_double - rmax / scale;
+  const double zero_point_from_min_error =
+      std::abs(qmin_double) + std::abs(rmin / scale);
+  const double zero_point_from_max_error =
+      std::abs(qmax_double) + std::abs(rmax / scale);
+
+  const double zero_point_double =
+      zero_point_from_min_error < zero_point_from_max_error
+          ? zero_point_from_min
+          : zero_point_from_max;
+
+  // Now we need to nudge the zero point to be an integer
+  // (our zero points are integer, and this is motivated by the requirement
+  // to be able to represent the real value "0" exactly as a quantized value,
+  // which is required in multiple places, for example in Im2col with SAME
+  // padding).
+  T nudged_zero_point = 0;
+  if (zero_point_double < qmin_double) {
+    nudged_zero_point = qmin;
+  } else if (zero_point_double > qmax_double) {
+    nudged_zero_point = qmax;
+  } else {
+    nudged_zero_point = static_cast<T>(round(zero_point_double));
+  }
+  // The zero point should always be in the range of quantized value,
+  // [qmin, qmax].
+  DCHECK_GE(nudged_zero_point, qmin);
+  DCHECK_LE(nudged_zero_point, qmax);
+
+  // Finally, store the result nudged quantization params.
+  QuantizedParams quantization_params;
+  quantization_params.zero_point = nudged_zero_point;
+  quantization_params.scale = scale;
+  return quantization_params;
+}
+
+
+// calculate M , N
+void QuantizeMultiplierEightBits(double double_multiplier, int32_t* quantized_multiplier,
+                        int* shift) {
+  if (double_multiplier == 0.) {
+    *quantized_multiplier = 0;
+    *shift = 0;
+    return;
+  }
+  float min_loss = 100.0;
+  for (int n = -32; n < 32; n++){
+    int m = round(double_multiplier * pow(2, n));
+    if (m > 0 && m < 256){
+      float loss = std::fabs(double_multiplier - m /(pow(2, n) + 0.0));
+      if (min_loss > loss){
+	min_loss = loss;
+	*shift = n;
+      }
+    }
+  }
+  *quantized_multiplier = static_cast<int32_t>(round(double_multiplier * pow(2, *shift)));
+}
+
+ 
+// add end
+
+
+
+
 
 // We have to be able to detect and handle overflows in int32, so this function
 // uses doubles and int64's to make sure we have enough room.
