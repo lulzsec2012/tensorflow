@@ -31,7 +31,7 @@ limitations under the License.
 namespace tensorflow {
 
 typedef Eigen::ThreadPoolDevice CPUDevice;
-
+typedef int32 Dtype;
 struct QuantizedParams{
   float scale;
   int32 zero_point;
@@ -118,14 +118,17 @@ void QuantizeMultiplier(double double_multiplier, int32_t* quantized_multiplier,
     *shift = 0;
     return;
   }
+  const int number_of_bits = sizeof(Dtype) * 8;
   const double q = std::frexp(double_multiplier, shift);
-  auto q_fixed = static_cast<int64_t>(round(q * (1ll << 31)));
-  DCHECK_LE(q_fixed , (1ll << 31));
-  if (q_fixed == (1ll << 31)) {
+  
+  auto q_fixed = static_cast<int64_t>(round(q * (1ll << (number_of_bits -1))));
+  DCHECK_LE(q_fixed , (1ll << (number_of_bits -1)));
+  if (q_fixed == (1ll << (number_of_bits -1))) {
     q_fixed /= 2;
     ++*shift;
   }
-  DCHECK_LE(q_fixed, std::numeric_limits<int32_t>::max());
+  
+  DCHECK_LE(q_fixed, std::numeric_limits<Dtype>::max());
   *quantized_multiplier = static_cast<int32_t>(q_fixed);
 }
 
@@ -211,14 +214,16 @@ int32 SaturatingRoundingDoublingHighMul(int32 a,
 		int32 b) {
 
   
+  const int number_of_bits = sizeof(Dtype) * 8;
   
   bool overflow = a == b && a == std::numeric_limits<int32>::min();
   int64 a_64(a);
   int64 b_64(b);
   int64 ab_64 = a_64 * b_64;
-  int32 nudge = ab_64 >= 0 ? (1 << 30) : (1 - (1 << 30));
+  
+  int32 nudge = ab_64 >= 0 ? (1 << (number_of_bits - 2)) : (1 - (1 << (number_of_bits - 2)));
   int32 ab_x2_high32 =
-      static_cast<int32>((ab_64 + nudge) / (1ll << 31));
+    static_cast<int32>((ab_64 + nudge) / (1ll << (number_of_bits - 1)));
   return overflow ? std::numeric_limits<int32>::max() : ab_x2_high32;
 
 
@@ -252,10 +257,7 @@ class JzRequantizeOp : public OpKernel {
     int32_t quantized_multiplier;
     int right_shift;
     QuantizeMultiplierSmallerThanOne(origin_multiplier, &quantized_multiplier, &right_shift);
-    //std::FILE* fp = std::fopen("/tmp/cal_mn.txt", "a+");
-    //std::fprintf(fp, "M: %d, N: %s\n", quantized_multiplier, right_shift);
-    //std::fclose(fp);
-    //std::cout <<"step: " << ctx->step_id() <<" quantized_multiplier: " << quantized_multiplier << " right_shift: " << right_shift << std::endl;
+
     Tensor* output = nullptr;
     OP_REQUIRES_OK(ctx, ctx->allocate_output(0, input.shape(), &output));
     Tensor* output_min = nullptr;
@@ -279,13 +281,12 @@ class JzRequantizeOp : public OpKernel {
       int32 tmpdata;
 
       tmpdata = MultiplyByQuantizedMultiplierSmallerThanOne(static_cast<int32>(input_array[i]) - input_quant_params.zero_point, quantized_multiplier, right_shift);
-      //tmpdata = MultiplyByQuantizedMultiplierSmallerThanOne(static_cast<int32>(input_array[i]), quantized_multiplier, right_shift);
-      //tmpdata= round(static_cast<float>(static_cast<int32>(input_array[i]) - input_quant_params.zero_point) * origin_multiplier);
       tmpdata += output_quant_params.zero_point;
       tmpdata = std::min(tmpdata, 255);
       tmpdata = std::max(tmpdata, 0);
       output_array[i] = static_cast<quint8>(tmpdata);
     }
+    
 
     output_min->flat<float>().setConstant(requested_output_min_float);
     output_max->flat<float>().setConstant(requested_output_max_float);
