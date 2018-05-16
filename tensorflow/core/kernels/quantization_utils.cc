@@ -38,5 +38,26 @@ void GetOutputMinAndMaxForQuantizedAdd(float input_min, float input_max,
       (1 << 17);
   *output_min = -(*output_max);
 }
-
+  
+void QuantizeMultiplierEightBits(double double_multiplier, int32_t* quantized_multiplier,
+                        int* shift) {
+  if (double_multiplier == 0.) {
+    *quantized_multiplier = 0;
+    *shift = 0;
+    return;
+  }
+  float min_loss = 100.0;
+  for (int n = -32; n < 32; n++){
+    int m = round(double_multiplier * pow(2, n));
+    if (m > 0 && m < 256){
+      float loss = std::fabs(double_multiplier - m /(pow(2, n) + 0.0));
+      if (min_loss > loss){
+	min_loss = loss;
+	*shift = n;
+      }
+    }
+  }
+  *quantized_multiplier = static_cast<int32_t>(round(double_multiplier * pow(2, *shift)));
+}
+  
 }  // namespace tensorflow

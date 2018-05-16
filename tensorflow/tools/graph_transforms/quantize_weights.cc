@@ -28,6 +28,34 @@ limitations under the License.
 
 namespace tensorflow {
 namespace graph_transforms {
+
+template <class T>
+float FloatForOneQuantizedLevel(float range_min, float range_max) {
+  const int64 highest = static_cast<int64>(Eigen::NumTraits<T>::highest());
+  const int64 lowest = static_cast<int64>(Eigen::NumTraits<T>::lowest());
+  const float float_for_one_quantized_level =
+      (range_max - range_min) / (highest - lowest);
+  return float_for_one_quantized_level;
+}
+
+template <class T1, class T2, class T3>
+void QuantizationRangeForMultiplication(float min_a, float max_a, float min_b,
+                                        float max_b, float* min_c,
+                                        float* max_c) {
+  const float a_float_for_one_quant_level =
+      FloatForOneQuantizedLevel<T1>(min_a, max_a);
+  const float b_float_for_one_quant_level =
+      FloatForOneQuantizedLevel<T2>(min_b, max_b);
+
+  const int64 c_highest = static_cast<int64>(Eigen::NumTraits<T3>::highest());
+  const int64 c_lowest = static_cast<int64>(Eigen::NumTraits<T3>::lowest());
+  const float c_float_for_one_quant_level =
+      a_float_for_one_quant_level * b_float_for_one_quant_level;
+
+  *min_c = c_float_for_one_quant_level * c_lowest;
+  *max_c = c_float_for_one_quant_level * c_highest;
+}
+
 void CopyOriginalMatchExceptNode(const NodeMatch& match,std::vector<NodeDef>* new_nodes, string bias_node_name) {
   std::vector<NodeDef> old_nodes;
   MatchedNodesAsArray(match, &old_nodes);
@@ -159,13 +187,14 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	Tensor quantized_tensor_8(DT_QUINT8, old_tensor.shape());
 	Tensor quantized_tensor_32(DT_QINT32, old_tensor.shape());
 	if(match_idx < pattern_num*max_depth){
-	  std::cout<<"match_idx="<<match_idx<<std::endl;
+	  //std::cout<<"match_idx="<<match_idx<<std::endl;
 	  NodeMatch current_match = static_cast<NodeMatch>(match.inputs[0]);
 	  for(int i=0;i<=match_idx%max_depth;i++){
 	    current_match = static_cast<NodeMatch>(current_match.inputs[0]);
 	  }
 	  //x_scale
 	  float x_scale = 1.0;
+	  float x_min, x_max;
 	  //std::cout<<"current_match.inputs[0].node.op():"<<current_match.node.op()<<std::endl;
 	  if("FakeQuantWithMinMaxVars" == current_match.node.op()){
 	    const NodeDef& last_activation_min_node = current_match.inputs[1].node;
@@ -181,10 +210,13 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	    }
 	    const float* last_activation_min_value = last_activation_min.flat<float>().data();
 	    const float* last_activation_max_value = last_activation_max.flat<float>().data();
-	    x_scale = 255 / (last_activation_max_value[0] - last_activation_min_value[0]);
+	    x_min = last_activation_min_value[0];
+	    x_max = last_activation_max_value[0];
+	    x_scale = 255 / (x_max - x_min);
 	  }else if("Placeholder" == current_match.node.op()){
-	    // x_scale = 255 / (1 - (-1.0));
-	    x_scale = 1.0;
+	    x_min = -1.0;
+	    x_max = 1.0;
+	    x_scale = 255 / (x_max - x_min);
 	  }else{
 	    return errors::InvalidArgument("current_match.node.op() should be 'FakeQuantWithMinMaxVars' or 'Placeholder'",
 					   current_match.node.name());
@@ -194,23 +226,14 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	  float w_min,w_max;
 	  getConstNodeMinMax(weight_node, w_min, w_max);
 	  float w_scale = 255 / (w_max - w_min);
-	  	  
-	  // min = static_cast<float>(-(1 << 31) / w_scale / x_scale);
-	  // max = static_cast<float>((1 << 31) / w_scale / x_scale);
-	  min = static_cast<float>((1-std::pow(2, 31)) / w_scale / x_scale);
-	  max = static_cast<float>(std::pow(2, 31) / w_scale / x_scale);
-	  
 	  qint32* quantized_tensor_value = quantized_tensor_32.flat<qint32>().data();
 	  const size_t quantized_tensor_elements = quantized_tensor_32.NumElements();
-	  float* old_tensor_value = old_tensor.flat<float>().data(); 
+	  float* old_tensor_value = old_tensor.flat<float>().data();
+	  QuantizationRangeForMultiplication<quint8,quint8,qint32>(w_min, w_max, x_min, x_max, &min,&max);
 	  for (int i = 0; i < quantized_tensor_elements; i++){
-	    
 	    quantized_tensor_value[i] = static_cast<int32_t>(round(old_tensor_value[i] * w_scale * x_scale));	  
-	    
 	  }
-	  std::cout << "quantized_tensor_value = "<< quantized_tensor_value[1] << std::endl;
 	  pquantized_tensor = &quantized_tensor_32;
-	  std::cout << "pquantized_tensor = "<< pquantized_tensor->flat<qint32>().data()[1] << std::endl;
 	}else{
 	  FloatTensorToQuantizedInPlace<quint8>(old_tensor, min, max,
 						&quantized_tensor_8);
@@ -272,7 +295,6 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 
         return Status::OK();
   };
-  //
   OpTypePattern pattern_hold = {"Placeholderxx"};
   OpTypePattern pattern_fake = {"FakeQuantWithMinMaxVars", {{"*"}, {"Const"}, {"Const"}}};    
   std::vector<OpTypePattern> pattern_vec = {pattern_hold,pattern_fake};
@@ -294,7 +316,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	pattern = pattern_reshape;
       }
       //
-      OpTypePattern pattern_conv = {"Conv2D|DepthwiseConv2dNative|MatMul",{pattern,{"*"}}};//
+      OpTypePattern pattern_conv = {"Conv2D|DepthwiseConv2dNative|MatMul",{pattern,{"*"}}};
       OpTypePattern pattern_bias = {"Add|BiasAdd",{pattern_conv,{"*"}}};
       TF_RETURN_IF_ERROR(ReplaceMatchingOpTypes(graph_def_tmp[match_idx],pattern_bias,node_generator,{}, &graph_def_tmp[match_idx+1]));
       TF_RETURN_IF_ERROR(IsGraphValid(graph_def_tmp[match_idx+1]));
@@ -303,7 +325,6 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
   }
   TF_RETURN_IF_ERROR(ReplaceMatchingOpTypes(graph_def_tmp[match_idx],{"Const"},node_generator,{}, output_graph_def));
   TF_RETURN_IF_ERROR(IsGraphValid(*output_graph_def));
-  
   return Status::OK();
 }
 

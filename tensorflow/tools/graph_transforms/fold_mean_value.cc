@@ -142,15 +142,16 @@ Status FoldMeanAndScale(const GraphDef& input_graph_def,
 	int weight_width = weight_tensor.dim_size(1);
 	int in_channel = weight_tensor.dim_size(2);
 	int out_channel = weight_tensor.dim_size(3);
-	int weight_size = in_channel * weight_height * weight_width;
+	int h_size = out_channel * in_channel * weight_width;
+	int w_size = out_channel * in_channel;
 	//	
 	
 	for (int i = 0; i < out_channel; i++){
 	  float tmp = 0;
 	  for (int j = 0; j < in_channel; j++){
-	    for (int w = 0; w < weight_width; w++){
-	      for (int h = 0; h < weight_height; h++){
-		tmp += new_weight_tensor_value[h + w * weight_height + j * (weight_height * weight_width) + i * weight_size] * mean_value[j];				
+	    for (int h = 0; h < weight_height; h++){
+	      for (int w = 0; w < weight_width; w++){
+		tmp += new_weight_tensor_value[i + j * out_channel + w * w_size + h * h_size] * mean_value[j];				
 	      }
 	    }
 	  }

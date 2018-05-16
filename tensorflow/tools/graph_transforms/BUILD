@@ -91,6 +91,7 @@ cc_library(
     srcs = [
         "add_default_attributes.cc",
         "backports.cc",
+	"calculate_mn.cc",
         "flatten_atrous.cc",
         "fold_batch_norms.cc",
         "fold_constants_lib.cc",
