@@ -27,7 +27,7 @@ limitations under the License.
 namespace tensorflow {
 namespace graph_transforms {
 
-Status BiasAdd2Add(const GraphDef& input_graph_def,
+Status Replace_ops(const GraphDef& input_graph_def,
                                     const TransformFuncContext& context,
                                     GraphDef* output_graph_def) {
   GraphDef replaced_graph_def;
@@ -43,23 +43,15 @@ Status BiasAdd2Add(const GraphDef& input_graph_def,
          std::vector<NodeDef>* new_nodes) {
 
         const NodeDef& old_op = match.node;
-	
-	std::cout << "=============================================" << std::endl;
-	std::cout << "old_op = " << old_op.name() << std::endl;
-	std::cout << "match.inputs[0].node.name() = " << match.inputs[0].node.name() << std::endl;
+        new_nodes->push_back(match.inputs[0].node);
+
+	// white debug
+	// std::cout << "=============================================" << std::endl;
+	// std::cout << "old_op = " << old_op.name() << std::endl;
+	// std::cout << "match.inputs[0].node.name() = " << match.inputs[0].node.name() << std::endl;
 	// std::cout << "match.inputs[1].node.name() = " << match.inputs[1].node.name() << std::endl;
 	// std::cout << "match.inputs[2].node.name() = " << match.inputs[2].node.name() << std::endl;
 
-
-        new_nodes->push_back(match.inputs[0].node);
-        // new_nodes->push_back(match.inputs[1].node);
-        // new_nodes->push_back(match.inputs[2].node:1);
-        // new_nodes->push_back(match.inputs[3].node:2);
-        // new_nodes->push_back(match.inputs[4].node);
-        // new_nodes->push_back(match.inputs[5].node);
-
-	// TensorShape s({1, 1});
-	// Tensor shape_tensor(DT_INT32, s);
 	Tensor shape_tensor(DT_INT32, TensorShape({2}));
         int32* shape_values = shape_tensor.flat<int32>().data();
 	shape_values[0] = -1;
@@ -69,17 +61,10 @@ Status BiasAdd2Add(const GraphDef& input_graph_def,
 	NodeDef const_shape_op;
         const_shape_op.set_op("Const");
         const_shape_op.set_name("logits/shape");
-        // SetNodeAttr("dtype", DT_FLOAT, &rounded_const_node);
         SetNodeAttr("dtype", DT_INT32, &const_shape_op);
-	
-        // SetNodeTensorAttr<float>("value", shape_tensor, &const_shape_op);
 	SetNodeTensorAttr<int>("value", shape_tensor, &const_shape_op);
-
 	new_nodes->push_back(const_shape_op);
 
-
-	
-	
         NodeDef new_op;
         new_op.set_op("Reshape");
         new_op.set_name(old_op.name());
@@ -89,8 +74,6 @@ Status BiasAdd2Add(const GraphDef& input_graph_def,
         AddNodeInput(const_shape_op.name(), &new_op);	
 	new_nodes->push_back(new_op);
 
-
-	std::cout << "=============================================" << std::endl;	
         return Status::OK();
       },
       {}, &replaced_graph_def));
@@ -98,9 +81,7 @@ Status BiasAdd2Add(const GraphDef& input_graph_def,
   return Status::OK();
 }
 
-  /************************/
-
-REGISTER_GRAPH_TRANSFORM("biasadd_to_add", BiasAdd2Add);
+REGISTER_GRAPH_TRANSFORM("squeeze_to_reshape", Replace_ops);
   
 }  // namespace graph_transforms
 }  // namespace tensorflow

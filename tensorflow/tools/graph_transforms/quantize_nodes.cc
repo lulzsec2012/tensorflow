@@ -380,7 +380,6 @@ Status ReplaceConvAndBiasAdd(const GraphDef& input_graph_def,
 	
 	//quantized_conv
         new_nodes->push_back(quantized_conv_node);
-
 	
 
 #if 1

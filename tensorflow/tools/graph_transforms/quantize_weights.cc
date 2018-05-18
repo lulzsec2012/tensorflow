@@ -98,6 +98,7 @@ Status getConstNodeMinMax(const NodeDef &old_const_node,float &rst_min,float &rs
 	rst_max = max;
 	return Status::OK();	
   }
+
 // Converts any large float constants into eight-bit equivalents, with a
 // Dequantize op so that subsequent nodes can still access the results in a
 // float form.
@@ -119,7 +120,7 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
                      std::vector<NodeDef>* new_nodes) {
         NodeDef old_const_node;
 	if(match_idx < pattern_num*max_depth){
-	  std::cout<<"match.node.name():"<<match.node.name()<<"::"<<"match.node.op():"<<match.node.op()<<" match_idx="<<match_idx<<std::endl;
+	  // std::cout<<"match.node.name():"<<match.node.name()<<"::"<<"match.node.op():"<<match.node.op()<<" match_idx="<<match_idx<<std::endl;
 	  //std::cout<<"match.DebugString()="<<std::endl<<match.DebugString()<<std::endl<<std::endl;	
 	  old_const_node = match.inputs[1].node;
 	  CopyOriginalMatchExceptNode(match, new_nodes, old_const_node.name());
