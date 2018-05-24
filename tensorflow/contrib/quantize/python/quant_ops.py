@@ -56,7 +56,8 @@ def LastValueQuantize(inputs,
                       reuse=None,
                       is_training=True,
                       num_bits=8,
-                      narrow_range=False):
+                      narrow_range=False,
+                      Ti_quant=False):
   """Adds a layer that collects quantization ranges as last input ranges.
 
   LastValueQuantize creates variables called 'min' and 'max', representing the
@@ -142,11 +143,20 @@ def LastValueQuantize(inputs,
     # TFLite requires that 0.0 if always in the [min; max] range.
     batch_max = math_ops.maximum(batch_max, 0.0)
     assign_max = state_ops.assign(max_var, batch_max, name='AssignMaxLast')
+    #
+    if Ti_quant:
+      act_abs_max = math_ops.maximum(math_ops.abs(assign_min),math_ops.abs(assign_max))
+      act_assign_min = state_ops.assign(min_var,math_ops.negative(act_abs_max))
+      act_assign_max = state_ops.assign(max_var,act_abs_max)
+    else:
+      act_assign_min = assign_min
+      act_assign_max = assign_max
+    #
 
     return _FakeQuantWithMinMaxVars(
         inputs,
-        assign_min,
-        assign_max,
+        act_assign_min,
+        act_assign_max,
         per_channel=per_channel,
         num_bits=num_bits,
         narrow_range=narrow_range)
@@ -163,7 +173,8 @@ def MovingAvgQuantize(inputs,
                       reuse=None,
                       is_training=True,
                       num_bits=8,
-                      narrow_range=False):
+                      narrow_range=False,
+                      Ti_quant=False):
   """Adds a layer that collects quantization ranges as EMAs of input ranges.
 
   MovingAvgQuantize creates variables called 'min' and 'max', representing the
@@ -251,11 +262,20 @@ def MovingAvgQuantize(inputs,
     batch_max = math_ops.maximum(batch_max, 0.0)
     assign_max = moving_averages.assign_moving_average(
         max_var, batch_max, ema_decay, name='AssignMaxEma')
-
+    #
+    if Ti_quant:
+      act_abs_max = math_ops.maximum(math_ops.abs(assign_min),math_ops.abs(assign_max))
+      act_assign_min = state_ops.assign(min_var,math_ops.negative(act_abs_max))
+      act_assign_max = state_ops.assign(max_var,act_abs_max)
+    else:
+      act_assign_min = assign_min
+      act_assign_max = assign_max
+    #
+    
     return _FakeQuantWithMinMaxVars(
         inputs,
-        assign_min,
-        assign_max,
+        act_assign_min,
+        act_assign_max,
         per_channel=per_channel,
         num_bits=num_bits,
         narrow_range=narrow_range)

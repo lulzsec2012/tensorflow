@@ -43,7 +43,8 @@ def Quantize(graph,
              ema_decay=0.999,
              quant_delay=None,
              vars_collection=ops.GraphKeys.GLOBAL_VARIABLES,
-             scope=None):
+             scope=None,
+             Ti_quant=False):
   """Updates graph with quantization operations.
 
   Currently we quantize the following tensors:
@@ -91,7 +92,8 @@ def Quantize(graph,
         narrow_range=True,
         vars_collection=vars_collection,
         bits=weight_bits,
-        consumer_scope=scope)
+        consumer_scope=scope,
+        Ti_quant=Ti_quant)
 
     # # Quantize the activations.white
     # consumer_ops = input_to_ops_map.ConsumerOperations(
@@ -107,9 +109,16 @@ def Quantize(graph,
       add_context = context
       if layer_match.bypass_op:
         add_context = re.search(r'^(.*)/([^/]+)', context).group(1)
-      
-      
-      # If `scope` is given, only quantize it if the producer of weights
+
+      #
+      act_Ti_quant=False
+      if Ti_quant:
+        if layer_match.activation_op.type in {'Relu', 'Relu6'}:
+          act_Ti_quant=False
+        else:
+          act_Ti_quant=True
+        
+        # If `scope` is given, only quantize it if the producer of weights
       # (usually it's the layer op) is in the right scope.
       _InsertQuantOp(
         add_context,
@@ -123,7 +132,8 @@ def Quantize(graph,
         vars_collection=vars_collection,
         bits=activation_bits,
         init_min=0.0,
-        producer_scope=scope)
+        producer_scope=scope,
+        Ti_quant=act_Ti_quant)
 
     # Quantize the inputs and output to the bypass (if it exists). The input to
     # the bypass is the bias add, and the output is the activation.
@@ -141,7 +151,8 @@ def Quantize(graph,
           vars_collection=vars_collection,
           bits=activation_bits,
           producer_scope=scope,
-          consumer_scope=scope)
+          consumer_scope=scope,
+          Ti_quant=Ti_quant)
       _InsertQuantOp(
           add_context,
           'add_quant',
@@ -154,7 +165,8 @@ def Quantize(graph,
           vars_collection=vars_collection,
           bits=activation_bits,
           producer_scope=scope,
-          consumer_scope=scope)
+          consumer_scope=scope,
+          Ti_quant=Ti_quant)
 
     # Quantize bypass ops that occur after the activation.
     if layer_match.post_activation_bypass_op is not None:
@@ -174,7 +186,8 @@ def Quantize(graph,
           quant_delay=quant_delay,
           vars_collection=vars_collection,
           bits=activation_bits,
-          producer_scope=scope)
+          producer_scope=scope,
+          Ti_quant=Ti_quant)
 
 
 def _FindLayersToQuantize(graph, is_training):
@@ -439,7 +452,8 @@ def _InsertQuantOp(context,
                    vars_collection=ops.GraphKeys.GLOBAL_VARIABLES,
                    narrow_range=False,
                    producer_scope=None,
-                   consumer_scope=None):
+                   consumer_scope=None,
+                   Ti_quant=False):
   """Inserts a quant op between a producer op and (multiple) consumer ops.
 
   Args:
@@ -523,7 +537,8 @@ def _InsertQuantOp(context,
             num_bits=bits,
             narrow_range=narrow_range,
             vars_collection=vars_collection,
-            name_prefix=name_prefix))
+            name_prefix=name_prefix,
+            Ti_quant=Ti_quant))
   else:
     quant = (
         quant_ops.LastValueQuantize(
@@ -534,7 +549,8 @@ def _InsertQuantOp(context,
             num_bits=bits,
             narrow_range=narrow_range,
             vars_collection=vars_collection,
-            name_prefix=name_prefix))
+            name_prefix=name_prefix,
+            Ti_quant=Ti_quant))
 
   if quant_delay and quant_delay > 0:
     activate_quant = math_ops.greater_equal(

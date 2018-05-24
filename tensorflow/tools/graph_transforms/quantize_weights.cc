@@ -108,13 +108,16 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
   int32 minimum_size;
   TF_RETURN_IF_ERROR(
       context.GetOneInt32Parameter("minimum_size", 1024, &minimum_size));
+  bool Ti_quant;
+  TF_RETURN_IF_ERROR(
+      context.GetOneBoolParameter("Ti_quant", false, &Ti_quant));
   int match_idx = 0;
   const int max_depth = 3;
   const int pattern_num = 2;
   std::vector<string> quant_bias_names;
   const std::function<Status(const NodeMatch&, const std::set<string>&,
                                const std::set<string>&, std::vector<NodeDef>*)>&
-    node_generator = [pattern_num, max_depth, &match_idx,minimum_size, &quant_bias_names](const NodeMatch& match,
+    node_generator = [pattern_num, max_depth, &match_idx,minimum_size, Ti_quant,&quant_bias_names](const NodeMatch& match,
                      const std::set<string>& input_nodes,
                      const std::set<string>& output_nodes,
                      std::vector<NodeDef>* new_nodes) {
@@ -183,6 +186,10 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
             max = min / 2.0f;
           }
         }
+	if(Ti_quant){
+	  max = std::max(std::abs(min),std::abs(max));
+	  min = -max;
+	}
 #if 1
 	Tensor *pquantized_tensor;
 	Tensor quantized_tensor_8(DT_QUINT8, old_tensor.shape());
@@ -226,6 +233,10 @@ Status QuantizeWeights(const GraphDef& input_graph_def,
 	  const NodeDef& weight_node = match.inputs[0].inputs[1].node;
 	  float w_min,w_max;
 	  getConstNodeMinMax(weight_node, w_min, w_max);
+	  if(Ti_quant){
+	    w_max = std::max(std::abs(w_min),std::abs(w_max));
+	    w_min = -w_max;
+	  }
 	  float w_scale = 255 / (w_max - w_min);
 	  qint32* quantized_tensor_value = quantized_tensor_32.flat<qint32>().data();
 	  const size_t quantized_tensor_elements = quantized_tensor_32.NumElements();
